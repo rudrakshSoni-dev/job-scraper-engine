@@ -1,25 +1,30 @@
-from sqlalchemy.orm import Session
-from sqlalchemy.exc import IntegrityError
-from app.models.job import Job
 import hashlib
+from sqlalchemy.dialects.postgresql import insert
+from app.models.job import Job
 
 
 def generate_hash(job):
-    key = f"{job['title']}-{job['company']}-{job.get('location')}"
+    key = f"{job['title'].strip().lower()}-{job['company'].strip().lower()}-{job.get('location','').strip().lower()}"
     return hashlib.sha256(key.encode()).hexdigest()
 
 
-def create_job(db: Session, data: dict):
-    data["hash"] = generate_hash(data)
+def bulk_create_jobs(db, jobs: list[dict]):
+    valid_jobs = []
 
-    job = Job(**data)
-    db.add(job)
+    for job in jobs:
+        # ✅ protect DB (skip bad data)
+        if not job.get("title") or not job.get("company"):
+            continue
 
-    try:
-        db.commit()
-        db.refresh(job)
-        return job
+        job["hash"] = generate_hash(job)
+        valid_jobs.append(job)
 
-    except IntegrityError:  # dedup via UNIQUE(hash)
-        db.rollback()
-        return None
+    if not valid_jobs:
+        print("NO VALID JOBS")
+        return
+
+    stmt = insert(Job).values(valid_jobs)
+    stmt = stmt.on_conflict_do_nothing(index_elements=["hash"])
+
+    db.execute(stmt)
+    db.commit()
