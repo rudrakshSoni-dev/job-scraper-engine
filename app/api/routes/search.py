@@ -1,11 +1,12 @@
 from fastapi import APIRouter, HTTPException
-from celery.result import AsyncResult
 from app.tasks.scrape_tasks import scrape_jobs_task
 from app.core.rate_limiter import check_rate_limit
-from app.services.job_service import get_cached_jobs
+from app.services.job_service import get_jobs  # ONLY THIS
 
 router = APIRouter()
 
+
+# 🔹 TRIGGER SCRAPE
 @router.post("/search")
 def search_jobs(payload: dict):
     user_id = payload.get("user_id", "anonymous")
@@ -13,47 +14,52 @@ def search_jobs(payload: dict):
     if not check_rate_limit(user_id):
         raise HTTPException(status_code=429, detail="Rate limit exceeded")
 
-    # Safe extraction
     query = payload.get("query")
     location = payload.get("location", "india")
 
     if not query:
         raise HTTPException(status_code=400, detail="query is required")
 
-    # Cache check
-    cached = get_cached_jobs(query, location)
-    if cached:
+    # ✅ unified service call (cache + DB handled inside)
+    result = get_jobs(query, location)
+
+    if result["source"] == "cache":
         return {
             "status": "cached",
-            "data": cached
+            "data": result["data"]
         }
 
-    # Send clean args to Celery (avoid passing raw payload)
-    task = scrape_jobs_task.delay({
+    # ✅ trigger async scrape
+    scrape_jobs_task.delay({
         "query": query,
         "location": location
     })
 
     return {
-        "task_id": task.id,
         "status": "processing"
     }
 
 
+# 🔹 DEBUG ONLY
 @router.get("/result/{task_id}")
 def get_result(task_id: str):
+    from celery.result import AsyncResult
+
     result = AsyncResult(task_id)
 
-    if result.state == "PENDING":
-        return {"status": "pending"}
+    return {
+        "state": result.state,
+        "result": str(result.result) if result.ready() else None
+    }
 
-    if result.state == "FAILURE":
-        return {
-            "status": "failed",
-            "error": str(result.result)
-        }
+
+# 🔹 READ API (DB + CACHE via service)
+@router.get("/jobs")
+def read_jobs(query: str, location: str):
+    result = get_jobs(query, location)
 
     return {
-        "status": "completed",
-        "data": result.result
+        "status": result["source"],
+        "count": len(result["data"]),
+        "data": result["data"]
     }
