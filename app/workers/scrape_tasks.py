@@ -1,18 +1,26 @@
-from app.workers.celery_app import celery
-from app.scrapers.indeed_scraper import IndeedScraper 
-from app.db.session import SessionLocal
-from app.services.job_service import bulk_create_jobs
+from celery import shared_task
+from scraper.playwright_scraper import PlaywrightScraper
+from app.services.job_service import bulk_insert_jobs
+import logging
+logger = logging.getLogger(__name__)
 
+@shared_task(bind=True, autoretry_for=(Exception,), retry_backoff=True, retry_kwargs={"max_retries": 3})
+def scrape_jobs_task(self, query, location):
+    scraper = PlaywrightScraper()
 
-@celery.task
-def run_scraper(query: str):
-    scraper = IndeedScraper()
-
-    html = scraper.fetch(query)
-    jobs = scraper.parse(html)   #directly use parsed jobs
-
-    db = SessionLocal()
     try:
-        bulk_create_jobs(db, jobs)
+        scraper.start()
+        jobs = scraper.scrape_jobs(query, location)
+
+        logger.info(f"Scraped {len(jobs)} jobs for query='{query}' location='{location}'")
+
+        bulk_insert_jobs(jobs)
+
+        logger.info("DB insert completely")
+        # normalize + hash inside service
+        bulk_insert_jobs(jobs)
+
+        return {"count": len(jobs)}
+
     finally:
-        db.close()
+        scraper.stop()
