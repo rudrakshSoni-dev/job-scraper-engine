@@ -6,7 +6,6 @@ from app.services.job_service import get_cached_jobs
 
 router = APIRouter()
 
-
 @router.post("/search")
 def search_jobs(payload: dict):
     user_id = payload.get("user_id", "anonymous")
@@ -14,14 +13,14 @@ def search_jobs(payload: dict):
     if not check_rate_limit(user_id):
         raise HTTPException(status_code=429, detail="Rate limit exceeded")
 
-    # ✅ Safe extraction
+    # Safe extraction
     query = payload.get("query")
     location = payload.get("location", "india")
 
     if not query:
         raise HTTPException(status_code=400, detail="query is required")
 
-    # ✅ Cache check
+    # Cache check
     cached = get_cached_jobs(query, location)
     if cached:
         return {
@@ -29,7 +28,7 @@ def search_jobs(payload: dict):
             "data": cached
         }
 
-    # ✅ Send clean args to Celery (avoid passing raw payload)
+    # Send clean args to Celery (avoid passing raw payload)
     task = scrape_jobs_task.delay({
         "query": query,
         "location": location

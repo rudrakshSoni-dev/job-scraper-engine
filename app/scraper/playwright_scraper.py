@@ -4,7 +4,6 @@ import logging
 import random
 import time
 
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 USER_AGENTS = [
@@ -13,126 +12,142 @@ USER_AGENTS = [
 ]
 
 
-def human_delay(a=5, b=10):  # 🔥 safer delay for MVP
+def human_delay(a=2, b=5):
     time.sleep(random.uniform(a, b))
 
 
 class PlaywrightScraper:
-    def __init__(self):
-        pass  # no persistent state
 
-    # ---------------------------
-    # PUBLIC METHOD
-    # ---------------------------
     def scrape_jobs(self, query: str, location: str):
         for attempt in range(3):
             try:
                 logger.info(f"Attempt {attempt + 1}")
-                return self._run_scraper(query, location)
+
+                jobs = self._run_scraper(query, location)
+
+                if jobs:   # ✅ success condition
+                    return jobs
+
+                raise Exception("No jobs scraped")
 
             except Exception as e:
                 logger.error(f"Attempt {attempt + 1} failed: {e}")
-                human_delay(6, 12)
+                time.sleep(random.uniform(5, 10))
 
         raise Exception("Scraping failed after retries")
 
-    # ---------------------------
-    # CORE SCRAPER
-    # ---------------------------
     def _run_scraper(self, query: str, location: str):
 
         with sync_playwright() as p:
 
             browser = p.chromium.launch(
-                headless=False,  # keep visible for MVP debugging
+                headless=False,
                 executable_path=r"C:\Program Files\Google\Chrome\Application\chrome.exe",
                 slow_mo=100
             )
 
             context = browser.new_context(
                 user_agent=random.choice(USER_AGENTS),
-                viewport={"width": 1366, "height": 768},
-                extra_http_headers={"Accept-Language": "en-US,en;q=0.9"}
+                viewport={"width": 1280, "height": 800},
+                locale="en-US"
             )
 
             page = context.new_page()
 
-            # 🔥 Block heavy resources (saves bandwidth + faster)
-            page.route("**/*", lambda route: (
-                route.abort()
-                if route.request.resource_type in ["image", "font", "media"]
-                else route.continue_()
-            ))
-
-            # basic stealth
+            # stealth
             page.add_init_script("""
                 Object.defineProperty(navigator, 'webdriver', {
                     get: () => undefined
                 });
             """)
 
-            url = f"https://www.indeed.com/jobs?q={query}&l={location}"
-
+            url = f"https://in.indeed.com/jobs?q={query}&l={location}"
             logger.info(f"Opening URL: {url}")
 
-            page.goto(url, timeout=60000)
+            try:
+                page.goto(url, timeout=60000)
 
-            logger.info(f"Page title: {page.title()}")
+                # ✅ ONLY WAIT (NO selector waits anywhere)
+                page.wait_for_timeout(5000)
 
-            # Block detection
-            if "Just a moment" in page.title():
-                raise Exception("Blocked by Cloudflare")
+                logger.info(f"Page title: {page.title()}")
 
-            # wait for jobs
-            page.wait_for_selector("a.tapItem", timeout=15000)
+                if "Just a moment" in page.title():
+                    raise Exception("Blocked by Cloudflare")
 
-            jobs = []
-            page_count = 0
-            MAX_PAGES = 3   #critical limit for MVP
+                active_selector = "div.job_seen_beacon"
 
-            while True:
-                page_count += 1
-                logger.info(f"Scraping page {page_count}")
+                jobs = []
+                seen_urls = set()
 
-                # simulate human scroll
-                page.mouse.wheel(0, random.randint(800, 1500))
-                human_delay()
+                page_count = 0
+                MAX_PAGES = 3
 
-                cards = page.query_selector_all("a.tapItem")
+                while True:
+                    page_count += 1
+                    logger.info(f"Scraping page {page_count}")
 
-                if not cards:
-                    logger.warning("No job cards found → stopping")
-                    break
+                    if page.is_closed():
+                        break
 
-                for card in cards:
+                    human_delay(2, 4)
+
+                    cards = page.query_selector_all(active_selector)
+                    logger.info(f"Cards found: {len(cards)}")
+
+                    if not cards:
+                        logger.warning("No cards → retry once")
+                        page.wait_for_timeout(4000)
+                        cards = page.query_selector_all(active_selector)
+
+                        if not cards:
+                            break
+
+                    # debug (safe)
                     try:
-                        job = extract_job(card)
+                        logger.info(cards[0].inner_text()[:200])
+                    except:
+                        pass
 
-                        if job.get("title") and job.get("company"):
-                            jobs.append(job)
+                    for card in cards:
+                        try:
+                            job = extract_job(card)
 
+                            if job and job.get("url") not in seen_urls:
+                                seen_urls.add(job.get("url"))
+                                jobs.append(job)
+
+                        except Exception as e:
+                            logger.warning(f"Extraction error: {e}")
+
+                    logger.info(f"Total jobs collected: {len(jobs)}")
+
+                    if page_count >= MAX_PAGES:
+                        break
+
+                    next_btn = (
+                        page.query_selector("a[aria-label='Next']") or
+                        page.query_selector("a[data-testid='pagination-page-next']")
+                    )
+
+                    if not next_btn:
+                        logger.info("No next button → ending")
+                        break
+
+                    try:
+                        next_btn.click()
+                        page.wait_for_timeout(4000)
                     except Exception as e:
-                        logger.warning(f"Extraction error: {e}")
+                        logger.warning(f"Pagination failed: {e}")
+                        break
 
-                logger.info(f"Total jobs collected: {len(jobs)}")
+                logger.info(f"Sample jobs: {jobs[:2]}")
 
-                if page_count >= MAX_PAGES:
-                    logger.info("Reached max page limit")
-                    break
+                return jobs   # ✅ ALWAYS return, never fail here
 
-                next_btn = page.query_selector("a[aria-label='Next']")
-
-                if not next_btn:
-                    logger.info("No next button → ending pagination")
-                    break
-
-                next_btn.click()
-                page.wait_for_selector("a.tapItem", timeout=15000)
-
-            context.close()
-            browser.close()
-
-            return jobs
+            finally:
+                context.close()
+                browser.close()
 
 # KEPT FOR LATER - SCALABLE VERSION 
 # from playwright.sync_api import sync_playwright
@@ -141,7 +156,6 @@ class PlaywrightScraper:
 # import logging
 # import random
 # import time
-
 
 # USER_AGENTS = [
 #     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
