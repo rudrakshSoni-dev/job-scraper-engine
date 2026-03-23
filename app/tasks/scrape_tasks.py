@@ -32,7 +32,8 @@ def scrape_jobs_task(self, payload: dict):
         try:
             job["source"] = "indeed"
             job["hash"] = generate_job_hash(job)
-            job["query"] = query
+            job["query"] = query.strip().lower()
+            job["location"] = job.get("location", "").strip().lower()
 
             processed_jobs.append(job)
         except Exception as e:
