@@ -1,7 +1,7 @@
 import hashlib
 from sqlalchemy.dialects.postgresql import insert
 from app.models.job import Job
-
+from app.db.session import SessionLocal
 
 def generate_hash(job):
     key = f"{job['title'].strip().lower()}-{job['company'].strip().lower()}-{job.get('location','').strip().lower()}"
@@ -28,3 +28,29 @@ def bulk_create_jobs(db, jobs: list[dict]):
 
     db.execute(stmt)
     db.commit()
+
+from app.db.session import SessionLocal
+from app.models.job import Job
+
+
+def get_cached_jobs(query, location):
+    db = SessionLocal()
+
+    jobs = db.query(Job).filter(
+        Job.query == query,
+        Job.location == location
+    ).limit(50).all()
+
+    db.close()
+
+    return jobs
+
+
+def save_jobs(jobs):
+    db = SessionLocal()
+
+    for job in jobs:
+        db.add(Job(**job))
+
+    db.commit()
+    db.close()

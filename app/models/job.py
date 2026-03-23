@@ -10,6 +10,7 @@ class Job(Base):
     title = Column(Text, nullable=False)
     company = Column(Text, nullable=False)
     location = Column(Text)
+    query = Column(String),
 
     description = Column(Text)
 

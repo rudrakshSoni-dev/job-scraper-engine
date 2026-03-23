@@ -1,5 +1,5 @@
 from playwright.sync_api import sync_playwright
-from scraper.extractors.indeed_extractor import extract_job
+from app.scraper.extractors.indeed_extractor import extract_job
 import logging
 import random
 import time
@@ -79,7 +79,7 @@ class PlaywrightScraper:
 
             logger.info(f"Page title: {page.title()}")
 
-            # 🚨 Block detection
+            # Block detection
             if "Just a moment" in page.title():
                 raise Exception("Blocked by Cloudflare")
 
@@ -88,7 +88,7 @@ class PlaywrightScraper:
 
             jobs = []
             page_count = 0
-            MAX_PAGES = 3   # 🔥 critical limit for MVP
+            MAX_PAGES = 3   #critical limit for MVP
 
             while True:
                 page_count += 1

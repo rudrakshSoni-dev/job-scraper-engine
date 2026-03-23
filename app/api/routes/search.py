@@ -2,6 +2,7 @@ from fastapi import APIRouter, HTTPException
 from celery.result import AsyncResult
 from app.tasks.scrape_tasks import scrape_jobs_task
 from app.core.rate_limiter import check_rate_limit
+from app.services.job_service import get_cached_jobs
 
 router = APIRouter()
 
@@ -13,7 +14,26 @@ def search_jobs(payload: dict):
     if not check_rate_limit(user_id):
         raise HTTPException(status_code=429, detail="Rate limit exceeded")
 
-    task = scrape_jobs_task.delay(payload)
+    # ✅ Safe extraction
+    query = payload.get("query")
+    location = payload.get("location", "india")
+
+    if not query:
+        raise HTTPException(status_code=400, detail="query is required")
+
+    # ✅ Cache check
+    cached = get_cached_jobs(query, location)
+    if cached:
+        return {
+            "status": "cached",
+            "data": cached
+        }
+
+    # ✅ Send clean args to Celery (avoid passing raw payload)
+    task = scrape_jobs_task.delay({
+        "query": query,
+        "location": location
+    })
 
     return {
         "task_id": task.id,
@@ -29,7 +49,10 @@ def get_result(task_id: str):
         return {"status": "pending"}
 
     if result.state == "FAILURE":
-        return {"status": "failed"}
+        return {
+            "status": "failed",
+            "error": str(result.result)
+        }
 
     return {
         "status": "completed",
