@@ -1,2 +1,3 @@
-2026/03/23-13:46:56.793 331c Creating DB C:\Users\BIT\Desktop\PROJECTS\resume-analyzer\backend\job-scraper-service\app\playwright_data\Default\GCM Store since it was missing.
-2026/03/23-13:46:56.798 331c Reusing MANIFEST C:\Users\BIT\Desktop\PROJECTS\resume-analyzer\backend\job-scraper-service\app\playwright_data\Default\GCM Store/MANIFEST-000001
+2026/03/23-13:58:43.616 4e1c Reusing MANIFEST C:\Users\BIT\Desktop\PROJECTS\resume-analyzer\backend\job-scraper-service\app\playwright_data\Default\GCM Store/MANIFEST-000001
+2026/03/23-13:58:43.616 4e1c Recovering log #3
+2026/03/23-13:58:43.617 4e1c Reusing old log C:\Users\BIT\Desktop\PROJECTS\resume-analyzer\backend\job-scraper-service\app\playwright_data\Default\GCM Store/000003.log 
