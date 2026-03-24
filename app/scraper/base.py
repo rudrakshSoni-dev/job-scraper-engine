@@ -7,3 +7,6 @@ class BaseScraper:
 
     def normalize(self, parsed):
         raise NotImplementedError
+    
+    def scrape_jobs(self, query: str, location: str) -> list[dict]:
+        raise NotImplementedError

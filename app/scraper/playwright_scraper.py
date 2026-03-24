@@ -1,5 +1,9 @@
+# app/scraper/playwright_scraper.py
+
 from playwright.sync_api import sync_playwright
+from app.scraper.base import BaseScraper
 from app.scraper.extractors.indeed_extractor import extract_job
+
 import logging
 import random
 import time
@@ -16,34 +20,38 @@ def human_delay(a=2, b=5):
     time.sleep(random.uniform(a, b))
 
 
-class PlaywrightScraper:
+class PlaywrightScraper(BaseScraper):
 
-    def scrape_jobs(self, query: str, location: str):
+    def scrape_jobs(self, query: str, location: str) -> list[dict]:
+        """
+        Public method used by Celery
+        Includes retry logic
+        """
         for attempt in range(3):
             try:
-                logger.info(f"Attempt {attempt + 1}")
+                logger.info(f"[Playwright] Attempt {attempt + 1}")
 
                 jobs = self._run_scraper(query, location)
 
-                if jobs:   # ✅ success condition
+                if jobs:
                     return jobs
 
                 raise Exception("No jobs scraped")
 
             except Exception as e:
-                logger.error(f"Attempt {attempt + 1} failed: {e}")
+                logger.error(f"[Playwright] Attempt {attempt + 1} failed: {e}")
                 time.sleep(random.uniform(5, 10))
 
-        raise Exception("Scraping failed after retries")
+        raise Exception("Playwright scraping failed after retries")
 
-    def _run_scraper(self, query: str, location: str):
+    def _run_scraper(self, query: str, location: str) -> list[dict]:
 
         with sync_playwright() as p:
 
             browser = p.chromium.launch(
-                headless=False,
+                headless=True,  # ✅ production → True
                 executable_path=r"C:\Program Files\Google\Chrome\Application\chrome.exe",
-                slow_mo=100
+                slow_mo=50
             )
 
             context = browser.new_context(
@@ -54,7 +62,7 @@ class PlaywrightScraper:
 
             page = context.new_page()
 
-            # stealth
+            # ✅ basic stealth
             page.add_init_script("""
                 Object.defineProperty(navigator, 'webdriver', {
                     get: () => undefined
@@ -62,20 +70,15 @@ class PlaywrightScraper:
             """)
 
             url = f"https://in.indeed.com/jobs?q={query}&l={location}"
-            logger.info(f"Opening URL: {url}")
+            logger.info(f"[Playwright] Opening URL: {url}")
 
             try:
                 page.goto(url, timeout=60000)
 
-                # ✅ ONLY WAIT (NO selector waits anywhere)
                 page.wait_for_timeout(5000)
-
-                logger.info(f"Page title: {page.title()}")
 
                 if "Just a moment" in page.title():
                     raise Exception("Blocked by Cloudflare")
-
-                active_selector = "div.job_seen_beacon"
 
                 jobs = []
                 seen_urls = set()
@@ -85,42 +88,40 @@ class PlaywrightScraper:
 
                 while True:
                     page_count += 1
-                    logger.info(f"Scraping page {page_count}")
-
-                    if page.is_closed():
-                        break
+                    logger.info(f"[Playwright] Page {page_count}")
 
                     human_delay(2, 4)
 
-                    cards = page.query_selector_all(active_selector)
-                    logger.info(f"Cards found: {len(cards)}")
+                    cards = page.query_selector_all("div.job_seen_beacon")
 
                     if not cards:
-                        logger.warning("No cards → retry once")
+                        logger.warning("[Playwright] No cards → retry once")
                         page.wait_for_timeout(4000)
-                        cards = page.query_selector_all(active_selector)
+                        cards = page.query_selector_all("div.job_seen_beacon")
 
                         if not cards:
                             break
-
-                    # debug (safe)
-                    try:
-                        logger.info(cards[0].inner_text()[:200])
-                    except:
-                        pass
 
                     for card in cards:
                         try:
                             job = extract_job(card)
 
+                            # ✅ enforce schema consistency
                             if job and job.get("url") not in seen_urls:
-                                seen_urls.add(job.get("url"))
+                                seen_urls.add(job["url"])
+
+                                job["source"] = "indeed_playwright"
+                                job["query"] = query
+                                job["location"] = (
+                                    job.get("location", "").strip().lower()
+                                )
+
                                 jobs.append(job)
 
                         except Exception as e:
-                            logger.warning(f"Extraction error: {e}")
+                            logger.warning(f"[Playwright] Extraction error: {e}")
 
-                    logger.info(f"Total jobs collected: {len(jobs)}")
+                    logger.info(f"[Playwright] Total jobs: {len(jobs)}")
 
                     if page_count >= MAX_PAGES:
                         break
@@ -131,19 +132,17 @@ class PlaywrightScraper:
                     )
 
                     if not next_btn:
-                        logger.info("No next button → ending")
+                        logger.info("[Playwright] No next button → stop")
                         break
 
                     try:
                         next_btn.click()
                         page.wait_for_timeout(4000)
                     except Exception as e:
-                        logger.warning(f"Pagination failed: {e}")
+                        logger.warning(f"[Playwright] Pagination failed: {e}")
                         break
 
-                logger.info(f"Sample jobs: {jobs[:2]}")
-
-                return jobs   # ✅ ALWAYS return, never fail here
+                return jobs
 
             finally:
                 context.close()

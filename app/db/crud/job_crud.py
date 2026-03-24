@@ -1,5 +1,5 @@
 from sqlalchemy.dialects.postgresql import insert
-from sqlalchemy import func, case, desc, text
+from sqlalchemy import func, case, desc, text, or_
 from app.models.job import Job
 
 
@@ -20,31 +20,45 @@ def bulk_insert_jobs(db, jobs: list[dict]):
 
 
 def get_jobs_paginated(db, query, location, limit=20, offset=0):
-    query_pattern = f"%{query}%"
+    # 🔹 tokenize query
+    tokens = [t.strip() for t in query.split() if t.strip()]
 
-    # 🔹 scoring logic
-    title_score = case(
-        (Job.title.ilike(query_pattern), 3),
-        else_=0
-    )
+    if not tokens:
+        return [], 0
 
-    company_score = case(
-        (Job.company.ilike(query_pattern), 2),
-        else_=0
-    )
+    # 🔹 scoring
+    score_expr = 0
+    filters = []
 
-    # ✅ correct recency (Postgres interval)
+    for token in tokens:
+        pattern = f"%{token}%"
+
+        title_score = case(
+            (Job.title.ilike(pattern), 3),
+            else_=0
+        )
+
+        company_score = case(
+            (Job.company.ilike(pattern), 2),
+            else_=0
+        )
+
+        score_expr += title_score + company_score
+
+        filters.append(Job.title.ilike(pattern))
+        filters.append(Job.company.ilike(pattern))
+
+    # 🔹 recency boost (once)
     recency_score = case(
         (Job.created_at >= func.now() - text("interval '7 days'"), 1),
         else_=0
     )
 
-    total_score = title_score + company_score + recency_score
+    score_expr += recency_score
 
-    # 🔹 base query (with score)
-    base_query = db.query(Job, total_score.label("score")).filter(
-        Job.title.ilike(query_pattern) |
-        Job.company.ilike(query_pattern)
+    # 🔹 base query
+    base_query = db.query(Job, score_expr.label("score")).filter(
+        or_(*filters)
     )
 
     if location:
@@ -52,10 +66,9 @@ def get_jobs_paginated(db, query, location, limit=20, offset=0):
             Job.location.ilike(f"%{location}%")
         )
 
-    # ✅ separate count query (better)
+    # 🔹 count query (same filters, no scoring)
     count_query = db.query(func.count()).select_from(Job).filter(
-        Job.title.ilike(query_pattern) |
-        Job.company.ilike(query_pattern)
+        or_(*filters)
     )
 
     if location:

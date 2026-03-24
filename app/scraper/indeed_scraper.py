@@ -2,6 +2,7 @@ import requests
 from bs4 import BeautifulSoup
 
 
+
 class IndeedScraper:
     BASE_URL = "https://www.indeed.com/jobs"
 
