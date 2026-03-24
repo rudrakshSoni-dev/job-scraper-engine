@@ -4,10 +4,8 @@ from app.db.session import SessionLocal
 from app.models.job import Job
 from app.db.crud.job_crud import get_jobs_paginated
 
-
 def cache_key(query: str, location: str, page: int, limit: int) -> str:
     return f"jobs:{query}:{location}:{page}:{limit}"
-
 
 def serialize_job(job: Job):
     return {
@@ -19,7 +17,6 @@ def serialize_job(job: Job):
         "source": job.source,
         "created_at": job.created_at.isoformat() if job.created_at else None,
     }
-
 
 def get_jobs(query: str, location: str, page: int = 1, limit: int = 20):
     key = cache_key(query, location, page, limit)

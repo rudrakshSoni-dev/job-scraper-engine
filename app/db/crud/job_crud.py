@@ -20,65 +20,58 @@ def bulk_insert_jobs(db, jobs: list[dict]):
 
 
 def get_jobs_paginated(db, query, location, limit=20, offset=0):
-    # 🔹 tokenize query
-    tokens = [t.strip() for t in query.split() if t.strip()]
+    # 🔹 normalize + tokenize
+    tokens = [t.lower().strip() for t in query.split() if t.strip()]
 
     if not tokens:
         return [], 0
 
-    # 🔹 scoring
-    score_expr = 0
     filters = []
+    score_expr = 0
 
     for token in tokens:
         pattern = f"%{token}%"
 
-        title_score = case(
-            (Job.title.ilike(pattern), 3),
-            else_=0
-        )
+        title_match = Job.title.ilike(pattern)
+        company_match = Job.company.ilike(pattern)
 
-        company_score = case(
-            (Job.company.ilike(pattern), 2),
-            else_=0
-        )
+        # scoring
+        score_expr += case((title_match, 3), else_=0)
+        score_expr += case((company_match, 2), else_=0)
 
-        score_expr += title_score + company_score
+        filters.append(title_match)
+        filters.append(company_match)
 
-        filters.append(Job.title.ilike(pattern))
-        filters.append(Job.company.ilike(pattern))
-
-    # 🔹 recency boost (once)
-    recency_score = case(
+    # 🔹 recency boost
+    score_expr += case(
         (Job.created_at >= func.now() - text("interval '7 days'"), 1),
         else_=0
     )
-
-    score_expr += recency_score
 
     # 🔹 base query
     base_query = db.query(Job, score_expr.label("score")).filter(
         or_(*filters)
     )
 
-    if location:
+    # 🔥 FIX: relaxed location filter
+    if location and location.lower() not in ["india", "remote", "any"]:
         base_query = base_query.filter(
             Job.location.ilike(f"%{location}%")
         )
 
-    # 🔹 count query (same filters, no scoring)
+    # 🔹 total count (same filters)
     count_query = db.query(func.count()).select_from(Job).filter(
         or_(*filters)
     )
 
-    if location:
+    if location and location.lower() not in ["india", "remote", "any"]:
         count_query = count_query.filter(
             Job.location.ilike(f"%{location}%")
         )
 
     total = count_query.scalar()
 
-    # 🔹 ranked results
+    # 🔹 results
     results = (
         base_query
         .order_by(desc("score"), Job.created_at.desc())

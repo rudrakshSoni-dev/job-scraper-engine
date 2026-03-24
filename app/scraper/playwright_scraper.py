@@ -49,7 +49,7 @@ class PlaywrightScraper(BaseScraper):
         with sync_playwright() as p:
 
             browser = p.chromium.launch(
-                headless=True,  # ✅ production → True
+                headless=True,  # production → True
                 executable_path=r"C:\Program Files\Google\Chrome\Application\chrome.exe",
                 slow_mo=50
             )
@@ -62,7 +62,7 @@ class PlaywrightScraper(BaseScraper):
 
             page = context.new_page()
 
-            # ✅ basic stealth
+            # basic stealth
             page.add_init_script("""
                 Object.defineProperty(navigator, 'webdriver', {
                     get: () => undefined
@@ -106,7 +106,7 @@ class PlaywrightScraper(BaseScraper):
                         try:
                             job = extract_job(card)
 
-                            # ✅ enforce schema consistency
+                            # enforce schema consistency
                             if job and job.get("url") not in seen_urls:
                                 seen_urls.add(job["url"])
 

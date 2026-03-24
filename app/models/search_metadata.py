@@ -1,5 +1,5 @@
 
-from sqlalchemy import Column, String, DateTime, UniqueConstraint
+from sqlalchemy import Column,Integer, String, DateTime, UniqueConstraint
 from app.db.base import Base
 
 class SearchMetadata(Base):
