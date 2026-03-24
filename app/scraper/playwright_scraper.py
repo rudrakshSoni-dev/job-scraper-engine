@@ -48,10 +48,11 @@ class PlaywrightScraper(BaseScraper):
 
         with sync_playwright() as p:
 
+            # ✅ FIXED: no executable_path
             browser = p.chromium.launch(
-                headless=True,  # production → True
-                executable_path=r"C:\Program Files\Google\Chrome\Application\chrome.exe",
-                slow_mo=50
+                headless=True,
+                slow_mo=50,
+                args=["--disable-blink-features=AutomationControlled"]
             )
 
             context = browser.new_context(
@@ -75,7 +76,9 @@ class PlaywrightScraper(BaseScraper):
             try:
                 page.goto(url, timeout=60000)
 
-                page.wait_for_timeout(5000)
+                # better wait
+                page.wait_for_load_state("domcontentloaded")
+                page.wait_for_timeout(3000)
 
                 if "Just a moment" in page.title():
                     raise Exception("Blocked by Cloudflare")
@@ -106,7 +109,6 @@ class PlaywrightScraper(BaseScraper):
                         try:
                             job = extract_job(card)
 
-                            # enforce schema consistency
                             if job and job.get("url") not in seen_urls:
                                 seen_urls.add(job["url"])
 
