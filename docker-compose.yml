@@ -1,3 +1,5 @@
+version: "3.9"
+
 services:
   postgres:
     image: postgres:15
@@ -6,18 +8,16 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: jobs_db
-    ports:
-      - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     restart: always
+    mem_limit: 300m
 
   redis:
     image: redis:7
     container_name: job-redis
-    ports:
-      - "6379:6379"
     restart: always
+    mem_limit: 100m
 
   api:
     build: .
@@ -32,6 +32,7 @@ services:
     command: >
       uvicorn app.main:app --host 0.0.0.0 --port 8000
     restart: always
+    mem_limit: 300m
 
   worker:
     build: .
@@ -44,8 +45,9 @@ services:
     command: >
       celery -A app.core.celery_app:celery_app worker
       --loglevel=info
-      --concurrency=4
+      --concurrency=1
     restart: always
+    mem_limit: 700m
 
   scheduler:
     build: .
@@ -59,6 +61,7 @@ services:
       celery -A app.core.celery_app:celery_app beat
       --loglevel=info
     restart: always
+    mem_limit: 200m
 
 volumes:
   postgres_data:
