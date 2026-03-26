@@ -65,3 +65,5 @@ services:
 
 volumes:
   postgres_data:
+
+  #AAAAC3NzaC1lZDI1NTE5AAAAINfadtP7cXoiYgwBvUWgdxmUK1SlA5194gYvWKU9/4tY
