@@ -10,14 +10,25 @@ services:
       POSTGRES_DB: jobs_db
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
     restart: always
     mem_limit: 300m
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      retries: 5
 
   redis:
     image: redis:7
     container_name: job-redis
+    command: ["redis-server", "--maxmemory", "80mb", "--maxmemory-policy", "allkeys-lru"]
     restart: always
     mem_limit: 100m
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      retries: 5
 
   api:
     build: .
@@ -27,10 +38,11 @@ services:
     env_file:
       - .env
     depends_on:
-      - postgres
-      - redis
-    command: >
-      uvicorn app.main:app --host 0.0.0.0 --port 8000
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
     restart: always
     mem_limit: 300m
 
@@ -40,12 +52,20 @@ services:
     env_file:
       - .env
     depends_on:
-      - postgres
-      - redis
-    command: >
-      celery -A app.core.celery_app:celery_app worker
-      --loglevel=info
-      --concurrency=1
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command:
+      [
+        "celery",
+        "-A",
+        "app.core.celery_app:celery_app",
+        "worker",
+        "--loglevel=info",
+        "--concurrency=1",
+        "--pool=solo"
+      ]
     restart: always
     mem_limit: 700m
 
@@ -55,14 +75,19 @@ services:
     env_file:
       - .env
     depends_on:
-      - postgres
-      - redis
-    command: >
-      celery -A app.core.celery_app:celery_app beat
-      --loglevel=info
+      redis:
+        condition: service_healthy
+    command:
+      [
+        "celery",
+        "-A",
+        "app.core.celery_app:celery_app",
+        "beat",
+        "--loglevel=info",
+        "--schedule=/tmp/celerybeat-schedule"
+      ]
     restart: always
     mem_limit: 200m
 
 volumes:
   postgres_data:
-#filler 

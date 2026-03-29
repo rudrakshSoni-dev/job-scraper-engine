@@ -2,10 +2,12 @@ import json
 from app.core.redis_client import redis_client
 from app.db.session import SessionLocal
 from app.models.job import Job
-from app.db.crud.job_crud import get_jobs_paginated
+from sqlalchemy import desc, text, or_
+
 
 def cache_key(query: str, location: str, page: int, limit: int) -> str:
     return f"jobs:{query}:{location}:{page}:{limit}"
+
 
 def serialize_job(job: Job):
     return {
@@ -15,33 +17,49 @@ def serialize_job(job: Job):
         "location": job.location,
         "url": job.url,
         "source": job.source,
-        "created_at": job.created_at.isoformat() if job.created_at else None,
+        "posted_at": job.posted_at.isoformat() if job.posted_at else None,
     }
+
 
 def get_jobs(query: str, location: str, page: int = 1, limit: int = 20):
     key = cache_key(query, location, page, limit)
 
-    # CACHE READ
     cached = redis_client.get(key)
     if cached:
-        print("CACHE HIT")
-        return json.loads(cached)
-
-    print("CACHE MISS")
+        return json.loads(cached.decode("utf-8"))
 
     db = SessionLocal()
+
     try:
         offset = (page - 1) * limit
 
-        # use paginated query
-        jobs, total = get_jobs_paginated(
-            db, query, location, limit, offset
+        q = db.query(Job)
+
+        if query:
+            q = q.filter(Job.title.ilike(f"%{query}%"))
+
+        if location and location not in ["india", "remote", "any"]:
+            q = q.filter(Job.location.ilike(f"%{location}%"))
+
+        q = q.filter(
+            or_(
+                Job.posted_at == None,
+                Job.posted_at >= text("NOW() - INTERVAL '7 days'")
+            )
+        )
+
+        total = q.count()
+
+        jobs = (
+            q.order_by(desc(Job.posted_at))
+            .limit(limit)
+            .offset(offset)
+            .all()
         )
 
         data = [serialize_job(j) for j in jobs]
 
         response = {
-            "source": "db",
             "data": data,
             "meta": {
                 "page": page,
@@ -51,7 +69,6 @@ def get_jobs(query: str, location: str, page: int = 1, limit: int = 20):
             }
         }
 
-        # cache only if data exists
         if data:
             redis_client.setex(key, 300, json.dumps(response))
 
