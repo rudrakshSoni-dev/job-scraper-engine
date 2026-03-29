@@ -31,8 +31,8 @@ class PlaywrightScraper(BaseScraper):
         NEW: No query input
         Uses config-driven scraping
         """
-        from app.core.config import SEARCH_TERMS, LOCATION
-
+        from app.core.config import SEARCH_TERMS, LOCATION, MAX_PAGES 
+        
         all_jobs = []
 
         for query in SEARCH_TERMS:
