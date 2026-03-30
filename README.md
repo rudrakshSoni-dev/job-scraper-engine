@@ -6,6 +6,8 @@ A **production-oriented job aggregation system** that uses **offline scraping + 
 
 ---
 
+**Get Access here:** https://job-scraper-landing-page.vercel.app
+
 ## 🧠 Architecture
 
 ```
